@@ -6,6 +6,7 @@ from azure.storage.blob import BlobService
 from azure.storage.sharedaccesssignature import SharedAccessSignature, SharedAccessPolicy
 from azure.storage.models import AccessPolicy
 import datetime
+from urlparse import urlparse
 
 FILE_TYPE_LOCAL = 'local'
 FILE_TYPE_BLOB = 'blob'
@@ -127,18 +128,27 @@ def getArgument(argarray, argument):
 				log('found', True)
 				return argmatch.group(1)
 
-def copyLocalFileToAzure(sourceFile, dest, destKey):
-    blobservice = BlobService(dest, destKey)
+def split_storage_url(url):
+    parsed = urlparse(url)
+    h=parsed.hostname.split(".", 1)
+    p=parsed.path.split("/", 1)
+    if len(p) < 3:
+        p.append(None)
+    return (h[0], h[1], p[1], p[2])
+
+def copyLocalFileToAzure(sourceFile, destUrl, destKey):
+    storageparts = split_storage_url(destUrl)
+    blobservice = BlobService(storageparts[0], destKey)
     try:
         fh=open(sourceFile, "r")
     except:
         print "No such file", sourceFile
         return
-    blobservice.put_page_blob_from_file(container, filename, fh, getsize(filename), progress_callback=progess_bar)
+    blobservice.put_page_blob_from_file(storageparts[2], sourceFile, fh, getsize(sourceFile))
 
-def copyBlobToBlob(source, dest):
-    blobservice = BlobService(dest, destkey)
-    srcblobservice = BlobService(src, srckey)
+def copyBlobToBlob(sourceUrl, sourceKey, destUrl, destKey):
+    blobservice = BlobService(destUrl, destkey)
+    srcblobservice = BlobService(SourceUrl, srckey)
     today = datetime.datetime.utcnow()
     todayPlusMonth = today + datetime.timedelta(1)
     todayPlusMonthISO = todayPlusMonth.replace(microsecond=0).isoformat() + 'Z'
@@ -178,7 +188,7 @@ log('dest:' + str(dest), False)
 log('desttype:' + str(destType), False)
 
 if (sourceType == FILE_TYPE_LOCAL) and (destType == FILE_TYPE_BLOB):
-	copyLocalFileToAzure(source, dest)
+	copyLocalFileToAzure(source, dest, )
 elif (sourceType == FILE_TYPE_BLOB) and (destType == FILE_TYPE_BLOB):
 	copyBlobToBlob(source, dest)
 elif (sourceType == FILE_TYPE_TABLE) and (destType == FILE_TYPE_TABLE):
