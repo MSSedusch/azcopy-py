@@ -2,6 +2,8 @@
 
 import sys
 import re
+import os
+from os.path import getsize
 from azure.storage.blob import BlobService
 from azure.storage.sharedaccesssignature import SharedAccessSignature, SharedAccessPolicy
 from azure.storage.models import AccessPolicy
@@ -61,8 +63,8 @@ numberofthreads = 'NC'
 ARG_SRCTYPE = 'SourceType'
 ARG_DESTTYPE = 'DestType'
 #
-recursive = 'S'
-filepattern = 'Pattern'
+ARG_RECURSIVE = 'S'
+ARG_PATTERN = 'Pattern'
 checkmd5 = 'CheckMD5'
 listing = 'L'
 modifyTime = 'MT'
@@ -107,10 +109,10 @@ def getFileType(filename):
 		protocol = filematch.group(1)
 		if (protocol == 'http' or protocol == 'https'):
 			log('protocol is http(s), endpoint is ' + str(filematch.group(2)), True)
-			typeMatch = re.match('(\S*)\..*', str(filematch.group(2)))
-			if typeMatch and typeMatch.group(1) == ENDPOINT_TABLE:
+			typeMatch = re.match('(\S*?)\.(\S*?)\..*', str(filematch.group(2)))
+			if typeMatch and typeMatch.group(2) == ENDPOINT_TABLE:
 				return FILE_TYPE_TABLE
-			elif typeMatch and typeMatch.group(1) == ENDPOINT_BLOB:
+			elif typeMatch and typeMatch.group(2) == ENDPOINT_BLOB:
 				return FILE_TYPE_BLOB
 			elif typeMatch:
 				log('unknown endpoint ' + str(typeMatch.group(1)), False)
@@ -120,7 +122,7 @@ def getFileType(filename):
 		return FILE_TYPE_LOCAL
 	
 def getArgument(argarray, argument):
-	log('getting arg', True)
+	log('getting arg ' + str(argument), True)
 	if (argcontains(argarray, argument)):
 		for arg in argarray:
 			argmatch = re.match('/' + str(argument) + ':(.*)', str(arg))
@@ -136,7 +138,32 @@ def split_storage_url(url):
         p.append(None)
     return (h[0], h[1], p[1], p[2])
 
-def copyLocalFileToAzure(sourceFile, destUrl, destKey):
+def copyLocalFileToAzure(sourceFile, destUrl, destKey, recurse, pattern):
+    if os.path.isdir(sourceFile):
+        if recurse:
+            for root, directories, files in os.walk(sourceFile):
+                for file in files:
+                    fullpath = os.path.join(root, file)
+                    if pattern:
+                        filenamematch = re.match(pattern, str(file))
+                        if not filenamematch:
+                            continue
+                    
+                    uploadFile(fullpath, dest, destKey)
+        else:
+            for file in os.listdir(sourceFile):
+                fullpath = os.path.join(sourceFile, file)
+                if (os.path.isfile(fullpath)):
+                    if pattern:
+                        filenamematch = re.match(pattern, str(file))
+                        if not filenamematch:
+                            continue
+                    
+                    uploadFile(fullpath, dest, destKey)
+    else:
+        uploadFile(sourceFile, dest, destKey)
+                    
+def uploadFile(sourceFile, destUrl, destKey):
     storageparts = split_storage_url(destUrl)
     blobservice = BlobService(storageparts[0], destKey)
     try:
@@ -144,6 +171,7 @@ def copyLocalFileToAzure(sourceFile, destUrl, destKey):
     except:
         print "No such file", sourceFile
         return
+    log('uploading ' + str(sourceFile), True)
     blobservice.put_page_blob_from_file(storageparts[2], sourceFile, fh, getsize(sourceFile))
 
 def copyBlobToBlob(sourceUrl, sourceKey, destUrl, destKey):
@@ -182,13 +210,18 @@ destType = getArgument(sys.argv, ARG_DESTTYPE)
 if not destType:
 	destType = getFileType(dest)
 
+sourceKey = getArgument(sys.argv, ARG_SRCKEY)
+destKey = getArgument(sys.argv, ARG_DESTKEY)
+recurse = argcontains(sys.argv, ARG_RECURSIVE)
+pattern = getArgument(sys.argv, ARG_PATTERN)
+
 log('source:' + str(source), False)
 log('srctype:' + str(sourceType), False)
 log('dest:' + str(dest), False)
 log('desttype:' + str(destType), False)
 
 if (sourceType == FILE_TYPE_LOCAL) and (destType == FILE_TYPE_BLOB):
-	copyLocalFileToAzure(source, dest, )
+	copyLocalFileToAzure(source, dest, destKey, recurse, pattern)
 elif (sourceType == FILE_TYPE_BLOB) and (destType == FILE_TYPE_BLOB):
 	copyBlobToBlob(source, dest)
 elif (sourceType == FILE_TYPE_TABLE) and (destType == FILE_TYPE_TABLE):
